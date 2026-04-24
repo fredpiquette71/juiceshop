@@ -1,0 +1,76 @@
+name: Tenable WAS Private Juice Shop Scan
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-run-and-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout OWASP Juice Shop code
+      - name: Checkout Private Juice Shop repository
+        uses: actions/checkout@v4
+        with:
+          repository: fpiquette71/juiceshop
+          token: ${{ secrets.PAT_TOKEN }}
+
+      # 2. Build and Start Target App
+      - name: Build and Start Juice Shop
+        run: |
+          docker network create tenable-scan-net
+          
+          docker build -t private-juice-shop:latest .
+          
+          # Expose port 3000 to the host for the health check
+          docker run -d \
+            --name target-app \
+            --network tenable-scan-net \
+            -p 3000:3000 \
+            private-juice-shop:latest
+          
+          # Dynamic health check: Waits up to 60 seconds for the app to be responsive
+          echo "Waiting for Juice Shop to boot..."
+          timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; echo "Still waiting..."; done'
+          echo "Juice Shop is up and ready!"
+
+      # 3. Configure and Run Scanner
+      - name: Run Tenable Scanner
+        run: |
+          # Build the scan config in the workspace root
+          cat <<EOF > tenable_was.conf
+          "config_id"="${{ secrets.WAS_CONFIG_ID }}"
+          "template_id"="${{ secrets.WAS_TEMPLATE_ID }}"
+          vulnerability_threshold="high"
+          
+          scan {
+            target="http://target-app:3000"
+          }
+          EOF
+          chmod 777 tenable_was.conf
+          
+          docker pull tenable/was-scanner:latest
+          
+          # Run the scanner (automatically reads and writes to the /scanner mount)
+          docker run --rm \
+            --network tenable-scan-net \
+            -e WAS_MODE=cicd \
+            -e ACCESS_KEY="${{ secrets.TENABLE_ACCESS_KEY }}" \
+            -e SECRET_KEY="${{ secrets.TENABLE_SECRET_KEY }}" \
+            -v ${{ github.workspace }}:/scanner \
+            tenable/was-scanner:latest
+
+      # 4. Upload JSON results and logs to GitHub Artifacts
+      - name: Upload Tenable Scan Results
+        uses: actions/upload-artifact@v4
+        if: always() 
+        with:
+          name: tenable-was-results
+          path: |
+            ${{ github.workspace }}/scanner.log
+            ${{ github.workspace }}/*.json
+            ${{ github.workspace }}/*.html
+          retention-days: 14
