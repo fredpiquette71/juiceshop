@@ -48,9 +48,10 @@ jobs:
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          # Mimicking the exact syntax of the native UI export
+          # Both config_id and template_id are strictly required by the Docker parser
           cat <<EOF > tenable_was.conf
           "config_id"="${{ secrets.WAS_CONFIG_ID }}"
+          "template_id"="${{ secrets.WAS_TEMPLATE_ID }}"
           vulnerability_threshold="high"
           
           scan {
