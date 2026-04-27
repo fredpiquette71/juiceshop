@@ -1,4 +1,4 @@
-name: Tenable WAS Juice Shop Scan
+name: Tenable WAS Scan
 
 on:
   push:
@@ -11,41 +11,51 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1. Checkout OWASP Juice Shop code
-      - name: Checkout Juice Shop repository
+      # 1. Checkout repository code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Build and Start Target App
-      - name: Build and Start Juice Shop
+      # 2. Build and Start Target App Dynamically
+      - name: Build and Start App
         run: |
+          # Grab the repo name, ensure it is lowercase, and save it to GITHUB_ENV
+          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          
           docker network create tenable-scan-net
+          docker build -t $REPO_NAME:latest .
           
-          docker build -t juice-shop:latest .
+          # Dynamically discover the port by inspecting the Docker image metadata
+          DETECTED_PORT=$(docker inspect --format '{{range $port, $value := .Config.ExposedPorts}}{{println $port}}{{end}}' $REPO_NAME:latest | cut -d'/' -f1 | head -n 1)
           
-          # Expose port 3000 to the host for the health check
+          # Fallback to 3000 if no EXPOSE directive is found in the Dockerfile
+          APP_PORT=${DETECTED_PORT:-3000}
+          echo "Detected Application Port: $APP_PORT"
+          echo "APP_PORT=$APP_PORT" >> $GITHUB_ENV
+          
+          # Start the container using the dynamic port and name
           docker run -d \
-            --name target-app \
+            --name $REPO_NAME \
             --network tenable-scan-net \
-            -p 3000:3000 \
-            juice-shop:latest
+            -p $APP_PORT:$APP_PORT \
+            $REPO_NAME:latest
           
-          # Dynamic health check: Waits up to 60 seconds for the app to be responsive
-          echo "Waiting for Juice Shop to boot..."
-          timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; echo "Still waiting..."; done'
-          echo "Juice Shop is up and ready!"
+          # Dynamic health check
+          echo "Waiting for $REPO_NAME to boot on port $APP_PORT..."
+          timeout 60 bash -c "until curl -s http://localhost:$APP_PORT > /dev/null; do sleep 2; echo 'Still waiting...'; done"
+          echo "App is up and ready!"
 
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          
-          # Fixed configuration block: Removed template_id, fixed threshold casing, and cleaned up syntax
+          # Use template_id and name instead of config_id to bypass the 500 error
           cat <<EOF > tenable_was.conf
-          config_id="${{ secrets.WAS_CONFIG_ID }}"
+          name="Pipeline Scan - ${{ env.REPO_NAME }}"
+          template_id="${{ secrets.WAS_TEMPLATE_ID }}"
           vulnerability_threshold="High"
           
           scan {
-            target="http://${REPO_NAME}:${{ env.APP_PORT }}"
+            target="http://${{ env.REPO_NAME }}:${{ env.APP_PORT }}"
           }
           EOF
           chmod 777 tenable_was.conf
