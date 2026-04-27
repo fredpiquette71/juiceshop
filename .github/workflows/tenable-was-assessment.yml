@@ -48,10 +48,9 @@ jobs:
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          # Use template_id and name instead of config_id to bypass the 500 error
+          # The agent strictly requires config_id to link to the cloud platform
           cat <<EOF > tenable_was.conf
-          name="Pipeline Scan - ${{ env.REPO_NAME }}"
-          template_id="${{ secrets.WAS_TEMPLATE_ID }}"
+          config_id="${{ secrets.WAS_CONFIG_ID }}"
           vulnerability_threshold="High"
           
           scan {
