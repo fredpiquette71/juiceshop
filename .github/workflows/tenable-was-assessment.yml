@@ -37,21 +37,21 @@ jobs:
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          # Build the scan config in the workspace root
+          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Fixed configuration block: Removed template_id, fixed threshold casing, and cleaned up syntax
           cat <<EOF > tenable_was.conf
-          "config_id"="${{ secrets.WAS_CONFIG_ID }}"
-          "template_id"="${{ secrets.WAS_TEMPLATE_ID }}"
-          vulnerability_threshold="high"
+          config_id="${{ secrets.WAS_CONFIG_ID }}"
+          vulnerability_threshold="High"
           
           scan {
-            target="http://target-app:3000"
+            target="http://${REPO_NAME}:${{ env.APP_PORT }}"
           }
           EOF
           chmod 777 tenable_was.conf
           
           docker pull tenable/was-scanner:latest
           
-          # Run the scanner (automatically reads and writes to the /scanner mount)
           docker run --rm \
             --network tenable-scan-net \
             -e WAS_MODE=cicd \
