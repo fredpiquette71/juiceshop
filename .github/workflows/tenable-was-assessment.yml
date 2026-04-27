@@ -1,4 +1,4 @@
-name: Tenable WAS Private Juice Shop Scan
+name: Tenable WAS Juice Shop Scan
 
 on:
   push:
@@ -12,25 +12,22 @@ jobs:
     
     steps:
       # 1. Checkout OWASP Juice Shop code
-      - name: Checkout Private Juice Shop repository
+      - name: Checkout Juice Shop repository
         uses: actions/checkout@v4
-        with:
-          repository: fpiquette71/juiceshop
-          token: ${{ secrets.PAT_TOKEN }}
 
       # 2. Build and Start Target App
       - name: Build and Start Juice Shop
         run: |
           docker network create tenable-scan-net
           
-          docker build -t private-juice-shop:latest .
+          docker build -t juice-shop:latest .
           
           # Expose port 3000 to the host for the health check
           docker run -d \
             --name target-app \
             --network tenable-scan-net \
             -p 3000:3000 \
-            private-juice-shop:latest
+            juice-shop:latest
           
           # Dynamic health check: Waits up to 60 seconds for the app to be responsive
           echo "Waiting for Juice Shop to boot..."
