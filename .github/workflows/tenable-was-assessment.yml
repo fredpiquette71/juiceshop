@@ -48,10 +48,10 @@ jobs:
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          # The agent strictly requires config_id to link to the cloud platform
+          # Mimicking the exact syntax of the native UI export
           cat <<EOF > tenable_was.conf
-          config_id="${{ secrets.WAS_CONFIG_ID }}"
-          vulnerability_threshold="High"
+          "config_id"="${{ secrets.WAS_CONFIG_ID }}"
+          vulnerability_threshold="high"
           
           scan {
             target="http://${{ env.REPO_NAME }}:${{ env.APP_PORT }}"
@@ -68,7 +68,7 @@ jobs:
             -e SECRET_KEY="${{ secrets.TENABLE_SECRET_KEY }}" \
             -v ${{ github.workspace }}:/scanner \
             tenable/was-scanner:latest
-
+            
       # 4. Upload JSON results and logs to GitHub Artifacts
       - name: Upload Tenable Scan Results
         uses: actions/upload-artifact@v4
