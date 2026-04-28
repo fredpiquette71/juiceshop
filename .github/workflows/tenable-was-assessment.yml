@@ -15,55 +15,42 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Build and Start Target App Dynamically
-      - name: Build and Start App
+      # 2. Build and Start Target App
+      - name: Build and Start Juice Shop
         run: |
-          # Grab the repo name, ensure it is lowercase, and save it to GITHUB_ENV
-          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+          docker build -t juice-shop:latest .
           
-          docker network create tenable-scan-net
-          docker build -t $REPO_NAME:latest .
-          
-          # Dynamically discover the port by inspecting the Docker image metadata
-          DETECTED_PORT=$(docker inspect --format '{{range $port, $value := .Config.ExposedPorts}}{{println $port}}{{end}}' $REPO_NAME:latest | cut -d'/' -f1 | head -n 1)
-          
-          # Fallback to 3000 if no EXPOSE directive is found in the Dockerfile
-          APP_PORT=${DETECTED_PORT:-3000}
-          echo "Detected Application Port: $APP_PORT"
-          echo "APP_PORT=$APP_PORT" >> $GITHUB_ENV
-          
-          # Start the container using the dynamic port and name
+          # Run directly on the host network. (No -p or custom network needed!)
           docker run -d \
-            --name $REPO_NAME \
-            --network tenable-scan-net \
-            -p $APP_PORT:$APP_PORT \
-            $REPO_NAME:latest
+            --name target-app \
+            --network host \
+            juice-shop:latest
           
-          # Dynamic health check
-          echo "Waiting for $REPO_NAME to boot on port $APP_PORT..."
-          timeout 60 bash -c "until curl -s http://localhost:$APP_PORT > /dev/null; do sleep 2; echo 'Still waiting...'; done"
-          echo "App is up and ready!"
+          echo "Waiting for Juice Shop to boot..."
+          timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; echo "Still waiting..."; done'
+          echo "Juice Shop is up and ready!"
 
       # 3. Configure and Run Scanner
       - name: Run Tenable Scanner
         run: |
-          # Both config_id and template_id are strictly required by the Docker parser
           cat <<EOF > tenable_was.conf
           "config_id"="${{ secrets.WAS_CONFIG_ID }}"
           "template_id"="${{ secrets.WAS_TEMPLATE_ID }}"
+          "user_template_id"="${{ secrets.WAS_USER_TEMPLATE_ID }}"
           vulnerability_threshold="high"
           
           scan {
-            target="http://${{ env.REPO_NAME }}:${{ env.APP_PORT }}"
+            target="http://target-app:3000"
           }
           EOF
           chmod 777 tenable_was.conf
           
           docker pull tenable/was-scanner:latest
           
+          # Bind to host network and manually map 'target-app' to localhost
           docker run --rm \
-            --network tenable-scan-net \
+            --network host \
+            --add-host target-app:127.0.0.1 \
             -e WAS_MODE=cicd \
             -e ACCESS_KEY="${{ secrets.TENABLE_ACCESS_KEY }}" \
             -e SECRET_KEY="${{ secrets.TENABLE_SECRET_KEY }}" \
